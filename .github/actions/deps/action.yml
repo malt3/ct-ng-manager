@@ -1,0 +1,37 @@
+name: setup-deps
+description: Install build dependencies
+
+runs:
+  using: composite
+  steps:
+
+  - name: Dependencies
+    shell: bash
+    run: |
+      sudo apt-get update
+      sudo apt-get install --assume-yes --no-install-recommends \
+        gcc \
+        g++ \
+        gperf \
+        bison \
+        flex \
+        texinfo \
+        help2man \
+        make \
+        libncurses5-dev \
+        python3-dev \
+        autoconf \
+        automake \
+        libtool \
+        libtool-bin \
+        gawk \
+        wget \
+        bzip2 \
+        xz-utils \
+        unzip \
+        patch \
+        libstdc++6 \
+        rsync \
+        git \
+        meson \
+        ninja-build

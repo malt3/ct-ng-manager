@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+set -eu
+
+# idempotent crosstool-ng manager
+
+ct_version_default=1.25.0
+directory=.
+
+positional_args=()
+
+while [[ $# -gt 0 ]]; do
+  case $1 in
+  -C | --directory)
+    directory="$2"
+    shift # past argument
+    shift # past value
+    ;;
+  -*)
+    echo "Unknown option $1"
+    exit 1
+    ;;
+  *)
+    positional_args+=("$1") # save positional arg
+    shift                   # past argument
+    ;;
+  esac
+done
+
+set -- "${positional_args[@]}" # restore positional parameters
+
+external_dir=${directory}/external
+builds_dir=${directory}/builds
+installs_dir=${directory}/installs
+
+_workspace() {
+    local external_dir=${1}
+    local builds_dir=${2}
+    local installs_dir=${3}
+    mkdir -p "${external_dir}"
+    mkdir -p "${builds_dir}"
+    mkdir -p "${installs_dir}"
+}
+
+_archive() {
+    local external_dir=${1}
+    local ct_version=${2}
+    echo "${external_dir}/crosstool-ng-${ct_version}.tar.xz"
+}
+
+_build_dir() {
+    local builds_dir=${1}
+    local ct_version=${2}
+    echo "${builds_dir}/crosstool-ng-${ct_version}"
+}
+
+_install_dir() {
+    local installs_dir=${1}
+    local ct_version=${2}
+    echo "${installs_dir}/crosstool-ng-${ct_version}"
+}
+
+_check_xz() {
+    local file=${1}
+    xz -t "${file}"
+}
+
+_fetch() {
+    local ct_version=${1}
+    local archive=${2}
+    local build_dir=${3}
+    ct_source=http://crosstool-ng.org/download/crosstool-ng/crosstool-ng-${ct_version}.tar.xz
+    _check_xz "${archive}" || wget "${ct_source}" -O "${archive}"
+    mkdir -p "${build_dir}"
+    tar -xf "${archive}" --strip-components=1 -C "${build_dir}" 
+}
+
+_build() {
+    local build_dir=${1}
+    local install_dir
+    local workdir
+    install_dir=$(realpath "${2}")
+    workdir=$(pwd)
+    if [[ -f "${install_dir}/bin/ct-ng" ]]; then
+        return
+    fi
+    cd "${build_dir}"
+    ./configure "--prefix=${install_dir}"
+    make
+    make install
+    cd "${workdir}"
+    cat << EOF > "${install_dir}/activate"
+#!/usr/bin/env bash
+export OLD_CT_MANAGER_PATH=\${PATH}
+_add_to_path() {
+    local to_add=\${1}
+    [[ ":\$PATH:" != *":\${to_add}:"* ]] && export PATH="\${PATH}:\${to_add}"
+}
+
+_add_to_path "${install_dir}/bin"
+deactivate() {
+    export PATH="\${OLD_CT_MANAGER_PATH}"
+}
+EOF
+}
+
+if [[ -z ${1+x} ]]; then
+    ct_version=${ct_version_default}
+else
+    ct_version=${1}
+fi
+archive=$(_archive ${external_dir} ${ct_version})
+build_dir=$(_build_dir ${builds_dir} ${ct_version})
+install_dir=$(_install_dir ${installs_dir} ${ct_version})
+
+_workspace "${external_dir}" "${builds_dir}" "${installs_dir}"
+_fetch "${ct_version}" "${archive}" "${build_dir}"
+_build "${build_dir}" "${install_dir}"

@@ -1,0 +1,4 @@
+/builds
+/external
+/installs
+*.tar.gz

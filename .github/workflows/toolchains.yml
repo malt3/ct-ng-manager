@@ -1,0 +1,102 @@
+
+name: Build toolchains
+on: [push, workflow_dispatch]
+jobs:
+  host-toolchains:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain:
+         - aarch64-rpi4-linux-gnu
+         - aarch64-unknown-linux-gnu
+         - aarch64-unknown-linux-uclibc
+         - x86_64-multilib-linux-uclibc
+         - x86_64-unknown-linux-gnu
+         - x86_64-unknown-linux-uclibc
+    steps:
+      - name: Check out
+        uses: actions/checkout@v3
+
+      - name: Setup
+        uses: ./.github/actions/deps
+
+      - name: Build toolchain
+        env:
+          TOOLCHAIN: ${{ matrix.toolchain }}
+        run: |
+          # hack: prevent "Argument list too long"
+          ulimit -S -s unlimited
+          toolchains/generate.sh "${TOOLCHAIN}"
+          
+      - name: Upload toolchain
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.toolchain }}
+          path: "*.tar.gz"
+
+  canadian-toolchains:
+    runs-on: ubuntu-latest
+    needs: [host-toolchains]
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain:
+         - aarch64-unknown-linux-gnu~aarch64-unknown-linux-gnu
+         - aarch64-unknown-linux-gnu~x86_64-unknown-linux-gnu
+         - x86_64-unknown-linux-gnu~aarch64-unknown-linux-gnu
+         - x86_64-unknown-linux-gnu~x86_64-unknown-linux-gnu
+    steps:
+      - name: Check out
+        uses: actions/checkout@v3
+
+      - name: Setup
+        uses: ./.github/actions/deps
+
+      - name: Split toolchain
+        id: split-toolchain
+        shell: bash
+        env:
+          TOOLCHAIN: ${{ matrix.toolchain }}
+        run: |
+          IFS='~' read -ra TC <<< "${TOOLCHAIN}"
+          echo "host=${TC[0]}" >> "$GITHUB_OUTPUT"
+          echo "target=${TC[1]}" >> "$GITHUB_OUTPUT"
+
+      - name: Download host toolchain
+        id: download
+        uses: actions/download-artifact@v3
+        with:
+          name: ${{ steps.split-toolchain.outputs.host }}
+          path: ${{ github.workspace }}
+      
+      - name: Prepare host toolchain dir
+        shell: bash
+        env:
+          HOST_TOOLCHAIN: ${{ steps.split-toolchain.outputs.host }}
+        run: |
+          mkdir -p "builds/${HOST_TOOLCHAIN}/${HOST_TOOLCHAIN}"
+
+      - name: Extract host toolchain
+        shell: bash
+        env:
+          TAR: ${{ github.workspace }}/${{ steps.split-toolchain.outputs.host }}.tar.gz
+        working-directory: builds/${{ steps.split-toolchain.outputs.host }}/${{ steps.split-toolchain.outputs.host }}
+        run: |
+          tar -xf "${TAR}"
+          rm -f "${TAR}"
+          tree ${{ github.workspace }}/builds/${{ steps.split-toolchain.outputs.host }} || true
+
+      - name: Build toolchain
+        env:
+          TOOLCHAIN: ${{ matrix.toolchain }}
+        run: |
+          # hack: prevent "Argument list too long"
+          ulimit -S -s unlimited
+          toolchains/generate.sh "${TOOLCHAIN}"
+          
+      - name: Upload toolchain
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.toolchain }}
+          path: "*.tar.gz"
